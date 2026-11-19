@@ -19,7 +19,7 @@
 # every image build would blow the size budget and the image cache for no
 # benefit.
 
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 
 # Pin uv's own image (matches the version used in local dev) rather than
 # `:latest`, for reproducible builds.
@@ -48,7 +48,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY image/app ./app
 
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 # Never run the service as root.
 RUN groupadd --system app \
