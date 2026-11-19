@@ -1,0 +1,66 @@
+# Go
+*.o
+*.a
+*.so
+*.exe
+*.dll
+*.dylib
+coverage.out
+dist/
+bin/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.auto.tfvars.example
+# Committed deliberately: non-secret dev settings only (no API keys) —
+# scoped to this exact path so any future environment's tfvars stays
+# ignored by default.
+!infra/environments/dev/dev.auto.tfvars
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Models — fetched by scripts/fetch_model.py, not committed (also covers
+# tokenizer.json and any other files fetch_model.py drops alongside the
+# .onnx weights). Also covers benchmarks/models/ (the OLD-model copy the
+# benchmark downloads for itself).
+*.onnx
+models/
+
+# Benchmark input data — downloaded by benchmarks/run_benchmark.py from the
+# Hub on each run, never committed (only benchmarks/results/*.json is).
+benchmarks/data/
+
+# Superpowers scratch
+.superpowers/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Go gateway build artifacts
+/bin/
+/gateway/cover.out
+
+# k6 load-test output (Phase 4) — generated per run, not committed
+loadtest/results/

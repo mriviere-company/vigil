@@ -1,0 +1,96 @@
+# Weekly dependency updates, one entry per ecosystem/directory (PLAN.md
+# Phase 6). Minor/patch updates are grouped per ecosystem entry into a
+# single PR each week — majors stay ungrouped since they're the ones that
+# actually need a human look.
+version: 2
+updates:
+  # Go module: gateway/go.mod
+  - package-ecosystem: "gomod"
+    directory: "/gateway"
+    schedule:
+      interval: "weekly"
+    groups:
+      go-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Python: the 3 uv-managed projects (each keeps its own uv.lock — see
+  # each Dockerfile's header comment on why they aren't a uv workspace).
+  # `uv`, not `pip`: these dirs have committed uv.lock files and no
+  # requirements.txt — the pip ecosystem doesn't update uv.lock, so its
+  # PRs would bump pyproject.toml while leaving the lock stale (and the
+  # Dockerfiles' `uv sync --frozen` would keep installing the old pins).
+  # Dependabot's native uv ecosystem updates uv.lock itself.
+  - package-ecosystem: "uv"
+    directory: "/inference/text"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
+    directory: "/inference/image"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
+    directory: "/inference/common"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Docker base images: one Dockerfile per service, common/ has none of
+  # its own (shared library, not a container).
+  - package-ecosystem: "docker"
+    directory: "/gateway"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "docker"
+    directory: "/inference/text"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "docker"
+    directory: "/inference/image"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # This repo's own CI/CD workflow actions.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
