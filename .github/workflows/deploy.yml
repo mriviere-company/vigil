@@ -1,0 +1,193 @@
+name: Deploy (dev)
+
+# On-demand demo mechanism for the dev environment (PLAN.md §7: "apply
+# before an interview, destroy after" — never left running between
+# sessions). Manual-only: no push/PR trigger, no schedule.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "apply (bring the dev stack up) or destroy (tear it down)"
+        required: true
+        type: choice
+        default: apply
+        options:
+          - apply
+          - destroy
+      image_tag:
+        description: >-
+          Image tag to build/push/deploy (apply only; ignored by destroy).
+          Leave blank to use the triggering commit SHA. workflow_dispatch
+          input defaults must be static strings, so the "triggering SHA"
+          default from the brief is resolved at runtime in the first step
+          instead of here.
+        required: false
+        default: ""
+
+permissions:
+  id-token: write # OIDC -> aws-actions/configure-aws-credentials
+  contents: read
+
+# Only one apply/destroy against the dev environment at a time; queue
+# rather than cancel (cancelling a live `terraform apply`/`destroy`
+# mid-flight can leave the state file and real AWS resources out of sync).
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ca-central-1' }}
+  TF_DIR: infra/environments/dev
+
+jobs:
+  # --- apply: build+push images, then bring the dev stack up ------------
+  apply:
+    name: apply
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Resolve image tag
+        id: tag
+        # The input is passed in via `env:` rather than interpolated
+        # directly into the script (which would paste it into the shell
+        # script text verbatim) — the safe pattern for turning a
+        # workflow_dispatch input into a shell value.
+        env:
+          INPUT_IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          TAG="$INPUT_IMAGE_TAG"
+          if [ -z "$TAG" ]; then
+            TAG="${{ github.sha }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Deploying image tag: $TAG"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6.2.2
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: terraform -chdir=${{ env.TF_DIR }} init -input=false
+
+      - name: Bootstrap ECR repos (target apply)
+        # The ECR repos images get pushed to are themselves created by
+        # this Terraform config (module.ecr) — and PLAN.md §7 mandates
+        # `terraform destroy` at the end of every session, which tears
+        # those repos down too. So every apply starts from zero ECR
+        # repos, same as a brand-new environment: create just module.ecr
+        # first (infra/README.md's documented bootstrap-before-push
+        # procedure), then push, then the full apply below.
+        env:
+          TF_VAR_image_tag: ${{ steps.tag.outputs.tag }}
+          TF_VAR_api_keys: ${{ secrets.VIGIL_API_KEYS }}
+        run: |
+          terraform -chdir=${{ env.TF_DIR }} apply -auto-approve -input=false \
+            -target=module.ecr \
+            -var="image_tag=$TF_VAR_image_tag" \
+            -var="api_keys=$TF_VAR_api_keys"
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Login to ECR
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+          aws ecr get-login-password --region "${{ env.AWS_REGION }}" \
+            | docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+
+      - name: Build & push images
+        # Same buildx invocations as infra/README.md's deploy procedure
+        # (contexts/dockerfiles mirror docker-compose.yml), --push instead
+        # of --load since these need to land in ECR, not the local daemon.
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -e
+          REGISTRY="$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+
+          docker buildx build --platform linux/amd64 \
+            -t "$REGISTRY/vigil-gateway:$IMAGE_TAG" --push gateway
+
+          docker buildx build --platform linux/amd64 -f inference/text/Dockerfile \
+            -t "$REGISTRY/vigil-text:$IMAGE_TAG" --push inference
+
+          docker buildx build --platform linux/amd64 -f inference/image/Dockerfile \
+            -t "$REGISTRY/vigil-image:$IMAGE_TAG" --push inference
+
+      - name: terraform apply
+        env:
+          TF_VAR_image_tag: ${{ steps.tag.outputs.tag }}
+          TF_VAR_api_keys: ${{ secrets.VIGIL_API_KEYS }}
+        # -var is passed explicitly (not left to TF_VAR_* alone): Terraform
+        # variable precedence puts *.auto.tfvars ABOVE environment
+        # variables, and infra/environments/dev/dev.auto.tfvars commits a
+        # placeholder image_tag/api_keys pair (dev-only keys, documented in
+        # infra/README.md). Without the explicit -var flags below, this
+        # step would silently deploy the committed placeholders instead of
+        # this run's real tag/secret — -var on the command line is the one
+        # precedence level that wins over *.auto.tfvars.
+        run: |
+          terraform -chdir=${{ env.TF_DIR }} apply -auto-approve -input=false \
+            -var="image_tag=$TF_VAR_image_tag" \
+            -var="api_keys=$TF_VAR_api_keys"
+
+      - name: Wait for /v1/health
+        run: |
+          ALB_URL=$(terraform -chdir=${{ env.TF_DIR }} output -raw alb_url)
+          echo "ALB URL: $ALB_URL"
+          deadline=$((SECONDS + 300))
+          until curl -sf "$ALB_URL/v1/health"; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::/v1/health did not become healthy within 5 minutes"
+              exit 1
+            fi
+            echo "not healthy yet, retrying in 10s..."
+            sleep 10
+          done
+          echo
+          echo "Gateway healthy at $ALB_URL"
+
+      - name: Terraform outputs
+        run: terraform -chdir=${{ env.TF_DIR }} output
+
+  # --- destroy: tear the dev stack down -----------------------------------
+  destroy:
+    name: destroy
+    if: github.event.inputs.action == 'destroy'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6.2.2
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: terraform -chdir=${{ env.TF_DIR }} init -input=false
+
+      - name: terraform destroy
+        # image_tag isn't needed here (its default "latest"/dev.auto.tfvars
+        # value is irrelevant to tearing resources down) — api_keys still
+        # has no default (variables.tf) so it must still be supplied for
+        # Terraform to evaluate the config graph at all.
+        env:
+          TF_VAR_api_keys: ${{ secrets.VIGIL_API_KEYS }}
+        run: |
+          terraform -chdir=${{ env.TF_DIR }} destroy -auto-approve -input=false \
+            -var="api_keys=$TF_VAR_api_keys"

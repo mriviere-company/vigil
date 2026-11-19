@@ -1,0 +1,128 @@
+{
+  "meta": {
+    "run_at": "2026-07-11T18:28:11.956515+00:00",
+    "seed": 42,
+    "n_per_language": 1000,
+    "cpu": "Intel(R) Core(TM) i9-9900KF CPU @ 3.60GHz",
+    "dataset": {
+      "repo": "textdetox/multilingual_toxicity_dataset",
+      "revision": "01907546324b0330d2d8b7669648cc18823323e5",
+      "license": "openrail++"
+    },
+    "models": {
+      "old": {
+        "repo": "Xenova/toxic-bert",
+        "revision": "65cbc2607cb7fad64f98d1e8a5a3d1f8577895fd"
+      },
+      "new": {
+        "repo": "unitary/multilingual-toxic-xlm-roberta",
+        "revision": "4ad6f5c104d9ce813a1a2f33cac0c5b579ef6ee5",
+        "quantization": "onnxruntime dynamic quantization, QInt8",
+        "local_file": "inference/text/models/onnx/model_quantized.onnx"
+      }
+    },
+    "thresholds": {
+      "flag_threshold": 0.5,
+      "reject_threshold": 0.85,
+      "fr_advantage_min_auc_delta": 0.05,
+      "en_parity_max_auc_drop": 0.02,
+      "latency_p95_budget_ms": 100.0
+    }
+  },
+  "results": {
+    "old": {
+      "en": {
+        "roc_auc": 0.990248,
+        "f1_at_0_5": 0.9537223340040242,
+        "at_flag_threshold": {
+          "threshold": 0.5,
+          "precision": 0.9595141700404858,
+          "recall": 0.948
+        },
+        "at_reject_threshold": {
+          "threshold": 0.85,
+          "precision": 0.9904306220095693,
+          "recall": 0.828
+        }
+      },
+      "fr": {
+        "roc_auc": 0.783096,
+        "f1_at_0_5": 0.14048059149722736,
+        "at_flag_threshold": {
+          "threshold": 0.5,
+          "precision": 0.926829268292683,
+          "recall": 0.076
+        },
+        "at_reject_threshold": {
+          "threshold": 0.85,
+          "precision": 0.95,
+          "recall": 0.038
+        }
+      }
+    },
+    "new": {
+      "en": {
+        "roc_auc": 0.9951920000000001,
+        "f1_at_0_5": 0.9634888438133874,
+        "at_flag_threshold": {
+          "threshold": 0.5,
+          "precision": 0.977366255144033,
+          "recall": 0.95
+        },
+        "at_reject_threshold": {
+          "threshold": 0.85,
+          "precision": 0.9975247524752475,
+          "recall": 0.806
+        }
+      },
+      "fr": {
+        "roc_auc": 0.982796,
+        "f1_at_0_5": 0.9248434237995825,
+        "at_flag_threshold": {
+          "threshold": 0.5,
+          "precision": 0.9672489082969432,
+          "recall": 0.886
+        },
+        "at_reject_threshold": {
+          "threshold": 0.85,
+          "precision": 0.9845679012345679,
+          "recall": 0.638
+        }
+      }
+    }
+  },
+  "latency_ms": {
+    "old_int8": {
+      "n": 200,
+      "mean_ms": 36.290949269946395,
+      "p95_ms": 54.12373999974988
+    },
+    "new_int8": {
+      "n": 200,
+      "mean_ms": 40.00106626501747,
+      "p95_ms": 64.77753100029986
+    },
+    "new_fp32": {
+      "n": 200,
+      "mean_ms": 81.5635960149757,
+      "p95_ms": 108.36442000013443
+    }
+  },
+  "verdict": {
+    "fr_advantage": {
+      "delta_auc": 0.1997,
+      "threshold": 0.05,
+      "pass": true
+    },
+    "en_parity": {
+      "delta_auc": 0.0049440000000000595,
+      "threshold": -0.02,
+      "pass": true
+    },
+    "latency_ok": {
+      "p95_ms": 64.77753100029986,
+      "budget_ms": 100.0,
+      "pass": true
+    }
+  }
+}

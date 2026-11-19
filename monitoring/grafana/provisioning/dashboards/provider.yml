@@ -1,0 +1,15 @@
+# Auto-provisions the committed dashboard JSON from
+# monitoring/grafana/dashboards/ (mounted at /var/lib/grafana/dashboards in
+# the grafana service) — no manual "import dashboard" step needed.
+apiVersion: 1
+
+providers:
+  - name: vigil
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

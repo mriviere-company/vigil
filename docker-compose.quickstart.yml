@@ -1,0 +1,92 @@
+# vigil quickstart: pulls the 3 published GHCR images (no local build, no
+# model download — stub backends) and brings up the gateway + both inference
+# services on the dev API keys. This is the clone-to-first-verdict path:
+# measured ~16 s cold (pull included) / 6.5 s warm — see README.md "Run it":
+#
+#   git clone https://github.com/mriviere-company/vigil.git && cd vigil
+#   docker compose -f docker-compose.quickstart.yml up -d
+#
+# Images are published by the `publish` job in .github/workflows/ci.yml on
+# every green push to `main` (tags `latest` + `sha-<short>`) and on `v*`
+# release tags (semver tag) — see that job for exactly which tag lands where.
+#
+# Prometheus + Grafana are intentionally NOT part of the default `up` here
+# (see the `monitoring` profile below): the quickstart path is 3 containers.
+# For the full build-from-source stack (compose builds all 3 images locally
+# and always includes Prometheus/Grafana), use the main docker-compose.yml
+# instead (`make up` / `make down`).
+
+services:
+  gateway:
+    image: ghcr.io/mriviere-company/vigil-gateway:latest
+    ports:
+      - "8080:8080"
+    environment:
+      TEXT_SERVICE_URL: http://inference-text:8001
+      IMAGE_SERVICE_URL: http://inference-image:8002
+      # Dev-only default keys (free + pro tier) — never use these in a real
+      # deployment; override API_KEYS there.
+      API_KEYS: "dev-free:free,dev-pro:pro"
+    # No compose healthcheck: the runtime image is
+    # gcr.io/distroless/static-debian12:nonroot (see gateway/Dockerfile) —
+    # there is no shell, so a CMD/CMD-SHELL healthcheck isn't possible without
+    # bundling a dedicated probe binary. Real health is observed externally
+    # via `GET /v1/health`; see docker-compose.yml's header comment for the
+    # full reasoning (mirrored here verbatim).
+    depends_on:
+      - inference-text
+      - inference-image
+
+  inference-text:
+    image: ghcr.io/mriviere-company/vigil-text:latest
+    ports:
+      - "8001:8001"
+    environment:
+      # Stub backend: zero model download, deterministic scores.
+      MODEL_BACKEND: stub
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+  inference-image:
+    image: ghcr.io/mriviere-company/vigil-image:latest
+    ports:
+      - "8002:8002"
+    environment:
+      MODEL_BACKEND: stub
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+  # Off by default — `docker compose -f docker-compose.quickstart.yml --profile monitoring up -d`
+  # to include them. Same images/config as docker-compose.yml.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["monitoring"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    profiles: ["monitoring"]
+    ports:
+      - "3000:3000"
+    environment:
+      # Anonymous admin access — fine for a local-only dev stack, never for a
+      # real deployment.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus

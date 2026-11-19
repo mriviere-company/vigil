@@ -1,0 +1,107 @@
+# vigil local stack: gateway + 2 Python inference services + Prometheus +
+# Grafana (Phase 4). Docker is not available on the host that authored this
+# file — it is written and validated as YAML only (see the Phase 4 report for
+# the `python3 -c "import yaml..."` validation command); its first live
+# verification (image builds, healthchecks, Grafana screenshots) is deferred
+# to whenever a Docker host is available, per PLAN.md Phase 4.
+#
+# Deviation from the original plan worth flagging: the gateway service below
+# builds with `context: gateway`, not `context: .` — gateway/Dockerfile does
+# `COPY go.mod go.sum ./` and `COPY . .`, which only resolve correctly if the
+# build context *is* the gateway/ directory (its module lives at
+# gateway/go.mod, not at the repo root, and it imports nothing outside
+# gateway/). A `context: .` + `dockerfile: gateway/Dockerfile` pairing would
+# have Docker look for go.mod at the repo root and fail immediately.
+
+services:
+  gateway:
+    build:
+      context: gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      TEXT_SERVICE_URL: http://inference-text:8001
+      IMAGE_SERVICE_URL: http://inference-image:8002
+      # Dev-only default keys (free + pro tier) — never use these in a real
+      # deployment; override API_KEYS there.
+      API_KEYS: "dev-free:free,dev-pro:pro"
+    # No compose healthcheck: the runtime stage is
+    # gcr.io/distroless/static-debian12:nonroot (see gateway/Dockerfile) —
+    # there is no shell, so a CMD/CMD-SHELL healthcheck isn't possible without
+    # bundling a dedicated probe binary, which would work against the
+    # <20MB image-size target for no real benefit. It's also unnecessary for
+    # correctness: the gateway's circuit breaker already tolerates absent or
+    # unhealthy downstreams (returns 202 pending instead of hanging), so a
+    # plain `depends_on` (start-order only, no health gate) is sufficient —
+    # real health is observed externally via `GET /v1/health`.
+    depends_on:
+      - inference-text
+      - inference-image
+
+  inference-text:
+    build:
+      context: inference
+      dockerfile: text/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      # Default backend needs zero downloads so `make up` works out of the
+      # box. Real-model mode: set MODEL_BACKEND=onnx and uncomment
+      # MODEL_PATH/TOKENIZER_PATH below — the volume mount that makes them
+      # resolve inside the container is already present.
+      MODEL_BACKEND: stub
+      # MODEL_PATH: /app/models/onnx/model_quantized.onnx
+      # TOKENIZER_PATH: /app/models/tokenizer.json
+    volumes:
+      - ./inference/text/models:/app/models:ro
+    healthcheck:
+      # Mirrors the HEALTHCHECK already baked into text/Dockerfile; repeated
+      # here so compose's own health gate (used by dependents, `docker compose
+      # ps`) matches without relying on image-level HEALTHCHECK inheritance.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+  inference-image:
+    build:
+      context: inference
+      dockerfile: image/Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      MODEL_BACKEND: stub
+      # MODEL_PATH: /app/models/onnx/model_quantized.onnx
+    volumes:
+      - ./inference/image/models:/app/models:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    ports:
+      - "3000:3000"
+    environment:
+      # Anonymous admin access — fine for a local-only dev stack, never for a
+      # real deployment.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus

@@ -1,0 +1,23 @@
+# One ignore file at the shared build context root (inference/), not one per
+# service: since text/Dockerfile and image/Dockerfile both build with
+# `context: inference/` (see the comment at the top of each Dockerfile), a
+# .dockerignore living inside text/ or image/ would silently not apply —
+# classic Docker only reads .dockerignore from the context root. `**/`
+# patterns below match at any depth so this covers both services (and
+# common/) from one place.
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/models/
+common/tests/
+# common's own lockfile is dev-only: images resolve vigil-common through
+# the *service's* lock (uv.lock in text/ and image/), never common's.
+common/uv.lock
+text/tests/
+text/scripts/
+image/tests/
+image/scripts/
+.git/

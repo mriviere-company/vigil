@@ -1,0 +1,49 @@
+[project]
+name = "vigil-benchmarks"
+version = "0.1.0"
+description = "FR/EN toxicity benchmark: OLD (Xenova/toxic-bert) vs NEW (multilingual XLM-R) — kill-switch for the multilingual-model strategy bet, not marketing"
+requires-python = ">=3.12"
+dependencies = [
+  # Same runtime stack as inference/text (onnxruntime + tokenizers), plus
+  # what's needed to fetch datasets/the OLD model and score results.
+  # Intentionally its own project (own venv/lock) rather than a dependency
+  # of inference/text: this never ships in a service image, and inference/
+  # text's runtime must stay onnxruntime+tokenizers-only.
+  "onnxruntime>=1.19",
+  "tokenizers>=0.20",
+  "numpy>=1.26",
+  "huggingface-hub>=0.26",
+  "pyarrow>=17",
+  "scikit-learn>=1.5",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.7",
+  "mypy>=1.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["tokenizers.*", "onnxruntime.*", "pyarrow.*", "sklearn.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+pythonpath = ["."]

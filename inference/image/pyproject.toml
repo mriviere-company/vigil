@@ -1,0 +1,67 @@
+[project]
+name = "inference-image"
+version = "0.1.0"
+description = "vigil NSFW image-classification inference service (internal, called by the Go gateway)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "onnxruntime>=1.19",
+  "pillow>=11.0",
+  "numpy>=1.26",
+  "vigil-common",
+]
+
+[tool.uv.sources]
+# Path dependency (not a uv workspace): each service keeps its own lock and
+# venv, mirroring one-container-per-service. Editable so local edits to
+# common/ are picked up without reinstalling.
+vigil-common = { path = "../common", editable = true }
+
+[dependency-groups]
+# Test/lint tooling — installed by default with `uv sync`.
+dev = [
+  "pytest>=8.3",
+  # starlette's TestClient now requires httpx2 (httpx's successor package),
+  # not httpx, to avoid a StarletteDeprecationWarning on every test.
+  "httpx2>=2.0",
+  "ruff>=0.7",
+  "mypy>=1.13",
+]
+# Only needed to run scripts/fetch_model.py; not installed by a plain `uv sync`.
+# Run with: uv sync --group fetch && uv run --group fetch python scripts/fetch_model.py
+fetch = [
+  "huggingface-hub>=0.26",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Third-party libs without type stubs.
+module = ["onnxruntime.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+# `app` is not installed as a package (no [build-system] — this is a plain
+# uv-managed venv, not a distributable wheel), so point pytest at the repo
+# root to make `import app` resolve during test collection.
+pythonpath = ["."]

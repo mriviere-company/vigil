@@ -1,0 +1,100 @@
+[project]
+name = "inference-text"
+version = "0.1.0"
+description = "vigil text toxicity/spam inference service (internal, called by the Go gateway)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "onnxruntime>=1.19",
+  "tokenizers>=0.20",
+  # Imported directly in app/model.py — previously only a transitive dep via
+  # onnxruntime; pin it explicitly since we rely on it ourselves.
+  "numpy>=1.26",
+  "vigil-common",
+]
+
+[tool.uv.sources]
+# Path dependency (not a uv workspace): each service keeps its own lock and
+# venv, mirroring one-container-per-service. Editable so local edits to
+# common/ are picked up without reinstalling.
+vigil-common = { path = "../common", editable = true }
+# The "export" group's torch is dev-only tooling to run a model export once;
+# it never needs a GPU. Pinning it at the CPU wheel index avoids pulling in
+# several GB of CUDA/nvidia-* packages that PyPI's default torch wheel drags
+# in as dependencies on Linux.
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[dependency-groups]
+# Test/lint tooling — installed by default with `uv sync`.
+dev = [
+  "pytest>=8.3",
+  # starlette's TestClient now requires httpx2 (httpx's successor package),
+  # not httpx, to avoid a StarletteDeprecationWarning on every test.
+  "httpx2>=2.0",
+  "ruff>=0.7",
+  "mypy>=1.13",
+]
+# Only needed to run scripts/fetch_model.py; not installed by a plain `uv sync`.
+# Heavier than a plain Hub download: unitary/multilingual-toxic-xlm-roberta has
+# no ready-made ONNX export on the Hub (verified: no onnx-community/Xenova
+# mirror exists for it, only unofficial third-party re-uploads we chose not to
+# trust for production weights), so this group carries optimum+transformers
+# (and their torch dependency) to export it ourselves, once, at dev/build
+# time. None of this reaches the runtime image (see [project.dependencies]).
+# Run with: uv sync --group export && uv run --group export python scripts/fetch_model.py
+export = [
+  "optimum[onnxruntime]>=2.0",
+  "transformers>=4.57",
+  "sentencepiece>=0.2",
+  "protobuf>=5",
+  # Not imported directly, but pulled in transitively by optimum; listed
+  # explicitly so the [tool.uv.sources] CPU-index pin below actually takes
+  # effect (uv only applies a source override to a name it sees as a
+  # requirement of this project, not to arbitrary transitive packages).
+  "torch>=2.4",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Third-party libs without type stubs.
+module = ["tokenizers.*", "onnxruntime.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# "export"-group-only libs (scripts/fetch_model.py), not installed by a
+# plain `uv sync`; without type stubs either way.
+module = ["optimum.*", "transformers.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+# `app` is not installed as a package (no [build-system] — this is a plain
+# uv-managed venv, not a distributable wheel), so point pytest at the repo
+# root to make `import app` resolve during test collection.
+pythonpath = ["."]

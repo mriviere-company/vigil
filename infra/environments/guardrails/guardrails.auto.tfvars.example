@@ -1,0 +1,6 @@
+# Copy to guardrails.auto.tfvars (git-ignored) and fill in your own account's values.
+alert_email              = "you@example.com"
+aws_account_id           = "123456789012"
+sso_admin_role_name      = "AWSReservedSSO_AdministratorAccess_<suffix>"
+anomaly_subscription_arn = "arn:aws:ce::123456789012:anomalysubscription/<uuid>"
+anomaly_monitor_arn      = "arn:aws:ce::123456789012:anomalymonitor/<uuid>"
