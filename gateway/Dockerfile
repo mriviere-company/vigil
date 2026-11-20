@@ -10,7 +10,7 @@
 # the orchestrator (ECS/compose) against GET /v1/health.
 
 # ---- build ----
-FROM golang:1.26 AS build
+FROM golang:1.27 AS build
 
 WORKDIR /src
 
