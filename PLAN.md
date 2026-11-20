@@ -1,5 +1,8 @@
 # vigil — API de modération de contenu pour PME
 
+> **Statut (novembre 2026) : terminé.** Les 8 phases ci-dessous sont livrées. Ce document est conservé comme plan d'origine et registre des décisions ; ses cases n'ont pas été cochées pendant l'exécution. Ce qui a été livré et mesuré est décrit dans [`README.md`](README.md), les écarts connus dans sa section « Limitations & next steps ».
+> *Status (November 2026): complete. All 8 phases are delivered. This is the original plan and decision record; its checkboxes were not ticked during execution. See [`README.md`](README.md) for what shipped and was measured, and its "Limitations & next steps" section for known gaps.*
+>
 > Plan d'exécution destiné à Claude Code. Suivre les phases dans l'ordre.
 > Chaque phase se termine par des critères d'acceptation vérifiables avant de passer à la suivante.
 

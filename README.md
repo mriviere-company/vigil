@@ -11,6 +11,64 @@ services, wired for observability, cost control, and infrastructure-as-code —
 is the point. It is not offered as a product or service; it exists to show
 production serving done properly, end to end.
 
+## At a glance
+
+**Author:** Matthieu Rivière, Montréal area (Québec, Canada) —
+[LinkedIn](https://www.linkedin.com/in/rivierematthieu/). Built solo in
+July 2026: design, code, infrastructure, benchmarks, and the measurements
+below. Developed with Claude Code as a pair programmer, under written specs
+([`PLAN.md`](PLAN.md)), project rules ([`CLAUDE.md`](CLAUDE.md)), and the CI
+gates listed here.
+
+**Status:** complete. All eight planned phases are delivered; known gaps are
+listed under [Limitations & next steps](#limitations--next-steps).
+
+**Key results**
+
+| Measure | Result | Source |
+|---|---|---|
+| End-to-end latency (k6 ramp to ~15 req/s, real ONNX model) | **p95 18.3 ms** against a 200 ms budget, 0 % errors | [Performance](#performance-) |
+| Burst over the rate limit (k6) | `429` + `Retry-After`, **zero 5xx** | [`loadtest/k6/burst.js`](loadtest/k6/burst.js) |
+| French toxicity detection after the model swap | **ROC-AUC 0.783 → 0.983** (F1 0.14 → 0.93), English held (0.990 → 0.995) | [`benchmarks/`](benchmarks/README.md) |
+| int8 quantization (single-thread CPU) | p95 **64.8 ms** vs 108.4 ms in fp32 | [`benchmarks/results/fr_en_benchmark.json`](benchmarks/results/fr_en_benchmark.json) |
+| AWS stack (Terraform) | 61 resources, apply 4 min 20 s, destroy 3 min 02 s | [`infra/README.md`](infra/README.md) |
+| Running cost (dev, Fargate Spot) | ~$0.09/hour, **~$0.002 per 1,000 inferences** | [Cost](#cost-) |
+| Tests | 107 Go test functions (race detector on), 72 pytest tests, ≥ 80 % coverage gate on `gateway/internal/` | [`ci.yml`](.github/workflows/ci.yml) |
+
+**Skills demonstrated, with evidence**
+
+| Skill | What was built | Where to look |
+|---|---|---|
+| ML model serving | Two FastAPI + Pydantic v2 inference services on ONNX Runtime (CPU); model behind a protocol with a deterministic stub for tests | [`inference/`](inference) |
+| ML evaluation | FR/EN benchmark with thresholds fixed before the run: ROC-AUC, F1, precision/recall at the verdict thresholds, latency, known biases | [`benchmarks/README.md`](benchmarks/README.md) |
+| Model optimization | Hugging Face model exported to ONNX and dynamically quantized to int8 | [`inference/text/scripts/fetch_model.py`](inference/text/scripts/fetch_model.py) |
+| Resilient backend in Go | Hand-written circuit breaker (injected clock, deterministic tests), token-bucket rate limiting, backpressure, retries with jitter, graceful shutdown | [`gateway/internal/`](gateway/internal) |
+| API design | Versioned REST contract, tiered API keys, normalized error envelope, degraded mode (`202 pending`) | [`docs/api.md`](docs/api.md) |
+| Observability | Prometheus metrics, provisioned Grafana dashboard, JSON logs, request IDs propagated across services | [`monitoring/`](monitoring), [`gateway/internal/metrics/`](gateway/internal/metrics) |
+| Cloud & infrastructure as code | Terraform modules (network, ECS service ×3, ALB, ECR), ECS Fargate Spot, autoscaling, remote state | [`infra/`](infra) |
+| CI/CD & supply-chain security | Race tests, coverage gate, mypy, ruff, gitleaks on full history, Trivy on images and IaC, tflint, GHCR publishing, OIDC deploy with no long-lived AWS keys | [`.github/workflows/`](.github/workflows) |
+| FinOps | AWS budgets, a budget action that blocks costly resource creation, anomaly detection, cost per 1,000 inferences | [`infra/environments/guardrails/`](infra/environments/guardrails) |
+| Compliance engineering | Hash-chained, tamper-evident audit log; statement of reasons modeled on DSA Article 17; offline verifier CLI | [`gateway/internal/audit/`](gateway/internal/audit), [`gateway/internal/sor/`](gateway/internal/sor), [`gateway/cmd/audit-verify/`](gateway/cmd/audit-verify) |
+
+**Tech stack:** Python 3.12, FastAPI, Pydantic v2, ONNX Runtime, Hugging Face
+(XLM-RoBERTa), Go (standard library, `slog`), Docker (multi-stage, distroless,
+non-root), Prometheus, Grafana, k6, Terraform, AWS (ECS Fargate, ALB, ECR,
+CloudWatch, S3, IAM, Budgets), GitHub Actions, GHCR.
+
+**Repository map**
+
+| Path | Contents |
+|---|---|
+| [`gateway/`](gateway) | Go API gateway: auth, rate limiting, circuit breaker, proxying, verdict aggregation, audit log |
+| [`inference/`](inference) | Python inference services: `text/` (toxicity), `image/` (NSFW), shared code in `common/` |
+| [`benchmarks/`](benchmarks) | FR/EN model benchmark, its methodology and committed results |
+| [`infra/`](infra) | Terraform: `modules/`, `environments/dev` (on-demand stack), `environments/guardrails` (cost controls) |
+| [`loadtest/k6/`](loadtest/k6) | Ramp and burst load tests |
+| [`monitoring/`](monitoring) | Prometheus config and Grafana dashboard |
+| [`docs/api.md`](docs/api.md) | API contract (source of truth) |
+| [`PLAN.md`](PLAN.md) | Original execution plan and design decisions (French) |
+| [`llms.txt`](llms.txt) | Short index of this repository for AI assistants |
+
 ## The scenario
 
 The design brief the project is built against: SMBs that host user-generated
@@ -260,7 +318,7 @@ it all down. Grafana is at `http://localhost:3000`, Prometheus at `:9090`.
 (with the required image-build/push commands) in [`infra/README.md`](infra/README.md):
 
 ```bash
-./infra/scripts/bootstrap-backend.sh              # once ever: S3 state + DynamoDB lock
+./infra/scripts/bootstrap-backend.sh              # once ever: S3 state bucket (native lockfile)
 export TF_VAR_api_keys="<free-key>:free,<pro-key>:pro"   # your own keys, never committed
 cd infra/environments/dev && terraform apply      # or: gh workflow run deploy.yml -f action=apply
 terraform destroy                                 # always, at end of session

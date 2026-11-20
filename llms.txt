@@ -1,0 +1,33 @@
+# vigil
+
+> Content-moderation REST API: send text or an image, get `approved` / `flagged` / `rejected` with per-category scores in under 200 ms at p95. Portfolio project by Matthieu Rivière (Montréal area, Québec) demonstrating AI infrastructure engineering: a resilient Go gateway in front of two Python ONNX inference services, Terraform on AWS ECS Fargate, observability, CI security gates and cost guardrails. Complete; built solo in July 2026 with Claude Code as a pair programmer.
+
+Key facts, each backed by a file in this repository:
+
+- Latency: p95 18.3 ms end to end under a k6 ramp (~15 req/s) with the real ONNX model; budget 200 ms; 0 % errors. Burst test: `429` with `Retry-After`, zero 5xx.
+- ML evaluation: swapping toxic-bert for multilingual XLM-RoBERTa (ONNX, int8) raised French ROC-AUC from 0.783 to 0.983 with English held (0.990 → 0.995); thresholds fixed before the run.
+- Infrastructure: Terraform modules for VPC, ECS Fargate services, ALB, ECR; 61 resources applied in 4 min 20 s; deploys through GitHub Actions with OIDC (no long-lived AWS keys).
+- Cost: about $0.09/hour on Fargate Spot, about $0.002 per 1,000 inferences; AWS budgets plus a budget action that blocks costly resource creation.
+- Quality: 107 Go test functions with the race detector, 72 pytest tests, coverage gate ≥ 80 % on `gateway/internal/`, mypy, ruff, gitleaks on full history, Trivy, tflint.
+- Compliance: hash-chained audit log and a statement of reasons modeled on EU DSA Article 17.
+- Skills: Python, FastAPI, Pydantic, ONNX Runtime, Hugging Face, model quantization, ML evaluation (ROC-AUC, F1, precision/recall), Go, distributed-systems resilience (circuit breaker, rate limiting, backpressure, retries), Prometheus, Grafana, k6, Docker, Terraform, AWS, GitHub Actions, FinOps.
+
+## Start here
+
+- [README](https://github.com/mriviere-company/vigil/blob/main/README.md): overview, "At a glance" table of results and skills with evidence links, architecture, performance, cost, failure modes, limitations
+- [API contract](https://github.com/mriviere-company/vigil/blob/main/docs/api.md): endpoints, request and response schemas, error envelope
+- [Benchmark methodology and results](https://github.com/mriviere-company/vigil/blob/main/benchmarks/README.md): FR/EN model comparison, verdict thresholds, known biases
+
+## Code
+
+- [Gateway (Go)](https://github.com/mriviere-company/vigil/tree/main/gateway/internal): `circuit` (circuit breaker), `ratelimit` (token bucket), `proxy` (retries with jitter), `server` (backpressure, degraded mode), `auth`, `verdict`, `audit`, `sor`, `metrics`
+- [Inference services (Python)](https://github.com/mriviere-company/vigil/tree/main/inference): `text/` (toxicity), `image/` (NSFW), `common/` (shared code)
+- [Infrastructure (Terraform)](https://github.com/mriviere-company/vigil/blob/main/infra/README.md): modules, dev environment, cost guardrails, deploy and destroy procedure
+- [CI/CD](https://github.com/mriviere-company/vigil/tree/main/.github/workflows): `ci.yml` (tests, gates, image publishing), `deploy.yml` (Terraform apply/destroy with OIDC)
+- [Load tests](https://github.com/mriviere-company/vigil/tree/main/loadtest/k6): ramp and burst scenarios
+
+## Optional
+
+- [Execution plan (French)](https://github.com/mriviere-company/vigil/blob/main/PLAN.md): original phased plan, acceptance criteria, design decisions
+- [Project rules for coding agents](https://github.com/mriviere-company/vigil/blob/main/CLAUDE.md)
+- [Cost guardrails design](https://github.com/mriviere-company/vigil/blob/main/docs/superpowers/specs/2026-07-17-aws-cost-guardrails-design.md)
